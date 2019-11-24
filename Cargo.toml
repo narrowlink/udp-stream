@@ -10,5 +10,7 @@ homepage = "https://github.com/SajjadPourali/udp-stream"
 
 [dependencies]
 tokio = "0.2.0-alpha"
+
+[dev-dependencies]
 tokio-openssl = "0.4.0-alpha"
 openssl = "0.10"
