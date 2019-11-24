@@ -1,9 +1,11 @@
 [package]
 name = "udp-stream"
+description = "Implementation of UdpSocket same as TcpStream"
 version = "0.0.0-alpha.1"
 authors = ["SajjadPourali <sajjad@securation.com>"]
 edition = "2018"
-
+license = "MIT"
+homepage = "https://github.com/SajjadPourali/udp-stream"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

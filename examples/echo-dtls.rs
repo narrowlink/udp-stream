@@ -1,14 +1,11 @@
+use std::{io, net::SocketAddr, str::FromStr, time::Duration};
+
 use openssl::{
     pkey::PKey,
     ssl::{SslAcceptor, SslMethod},
     x509::X509,
 };
 
-use std::{
-    net::SocketAddr,
-    str::FromStr,
-    time::Duration,
-};
 #[allow(unused)]
 use tokio::{
     future::{Future, FutureExt},
@@ -17,7 +14,7 @@ use tokio::{
     sync::mpsc,
 };
 
-use udpstream::UdpListener;
+use udp_stream::UdpListener;
 
 const UDP_BUFFER_SIZE: usize = 17480; // 17kb
 const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
@@ -25,7 +22,7 @@ const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
 static SERVER_CERT: &'static [u8] = include_bytes!("server-cert.pem");
 static SERVER_KEY: &'static [u8] = include_bytes!("server-key.pem");
 
-fn ssl_acceptor(certificate: &[u8], private_key: &[u8]) -> std::io::Result<SslAcceptor> {
+fn ssl_acceptor(certificate: &[u8], private_key: &[u8]) -> io::Result<SslAcceptor> {
     let mut acceptor_builder = SslAcceptor::mozilla_intermediate(SslMethod::dtls())?;
     acceptor_builder.set_certificate(&&X509::from_pem(certificate)?)?;
     acceptor_builder.set_private_key(&&PKey::private_key_from_pem(private_key)?)?;
@@ -35,7 +32,7 @@ fn ssl_acceptor(certificate: &[u8], private_key: &[u8]) -> std::io::Result<SslAc
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> io::Result<()> {
     let mut listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
     loop {
         let (socket, _) = listener.accept().await?;
