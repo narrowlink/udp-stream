@@ -15,9 +15,8 @@ use tokio::{
 };
 
 const UDP_BUFFER_SIZE: usize = 17480; // 17kb
-//const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
+                                      //const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
 const CHANNEL_LEN: usize = 100;
-
 
 macro_rules! pin_mut {
     ($($x:ident),*) => { $(
@@ -29,6 +28,29 @@ macro_rules! pin_mut {
     )* }
 }
 
+/// An I/O object representing a UDP socket listening for incoming connections.
+///
+/// This object can be converted into a stream of incoming connections for
+/// various forms of processing.
+///
+/// # Examples
+///
+/// ```no_run
+/// use udp_stream::UdpListener;
+///
+/// use std::{io, net::SocketAddr};
+/// # async fn process_socket<T>(_socket: T) {}
+///
+/// #[tokio::main]
+/// async fn main() -> io::Result<()> {
+///     let mut listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
+///
+///     loop {
+///         let (socket, _) = listener.accept().await?;
+///         process_socket(socket).await;
+///     }
+/// }
+/// ```
 pub struct UdpListener {
     #[allow(unused)]
     local_addr: SocketAddr,
@@ -117,6 +139,14 @@ impl UdpListener {
     }
 }
 
+/// An I/O object representing a UDP stream connected to a remote endpoint.
+///
+/// A UDP stream can either be created by connecting to an endpoint, via the
+/// [`connect`] method, or by [accepting] a connection from a [listener].
+///
+/// [`connect`]: struct.UdpStream.html#method.connect
+/// [accepting]: struct.UdpListener.html#method.accept
+/// [listener]: struct.UdpListener.html
 pub struct UdpStream {
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
@@ -125,6 +155,12 @@ pub struct UdpStream {
 }
 
 impl UdpStream {
+    /// Create a new UDP stream connected to the specified address.
+    ///
+    /// This function will create a new UDP socket and attempt to connect it to
+    /// the `addr` provided. The returned future will be resolved once the
+    /// stream has successfully connected, or it will return an error if one
+    /// occurs.
     #[allow(unused)]
     pub async fn connect(addr: SocketAddr) -> Result<Self, tokio::io::Error> {
         let local_addr: SocketAddr = if addr.is_ipv4() {
