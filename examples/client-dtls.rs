@@ -2,13 +2,7 @@ use std::{io, net::SocketAddr, str::FromStr};
 
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 
-#[allow(unused)]
-use tokio::{
-    future::{Future, FutureExt},
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    net::UdpSocket,
-    sync::mpsc,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use udp_stream::UdpStream;
 

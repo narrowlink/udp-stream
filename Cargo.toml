@@ -1,16 +1,39 @@
 [package]
-name = "udp-stream"
-description = "Implementation of UdpSocket same as TcpStream"
-version = "0.0.0-alpha.2"
-authors = ["SajjadPourali <sajjad@securation.com>"]
-edition = "2018"
-license = "MIT"
-homepage = "https://github.com/SajjadPourali/udp-stream"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+name = 'udp-stream'
+description = 'Implementation of UdpSocket same as TcpStream'
+version = '0.0.0-alpha.3'
+authors = ['SajjadPourali <sajjad@securation.com>']
+edition = '2018'
+license = 'MIT'
+homepage = 'https://github.com/SajjadPourali/udp-stream'
 
-[dependencies]
-tokio = "0.2.0-alpha"
+[dependencies.tokio]
+version = '0.2'
+features = [
+    'udp',
+    'sync',
+    'rt-core',
+    'io-util',
+]
 
 [dev-dependencies]
-tokio-openssl = "0.4.0-alpha"
-openssl = "0.10"
+tokio-openssl = '0.4'
+openssl = { version = "0.10", features = ["vendored"] }
+
+[dev-dependencies.tokio]
+version = '0.2'
+features = [
+    'time',
+    'macros',
+]
+
+[profile.release]
+opt-level = 'z'
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
+panic = 'abort'
+incremental = false
+overflow-checks = false

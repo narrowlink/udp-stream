@@ -1,21 +1,20 @@
 use std::{
     collections::HashMap,
+    future::Future,
     net::SocketAddr,
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 
-#[allow(unused)]
 use tokio::{
-    future::{Future, FutureExt},
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncRead, AsyncWrite},
     net::UdpSocket,
     sync::mpsc,
 };
 
 const UDP_BUFFER_SIZE: usize = 17480; // 17kb
-//const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
+                                      //const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
 const CHANNEL_LEN: usize = 100;
 
 macro_rules! pin_mut {
