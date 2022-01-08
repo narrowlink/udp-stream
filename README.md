@@ -1,7 +1,7 @@
 
 # udp-stream
 
-[![crates.io](https://img.shields.io/crates/v/udp-stream.svg)](https://crates.io/crates/openssl)
+[![crates.io](https://img.shields.io/crates/v/udp-stream.svg)](https://crates.io/crates/udp-stream)
 
 Virtual UDP Stream implementation like Tokio TCP Stream based on Tokio.
 
