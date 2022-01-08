@@ -8,8 +8,8 @@ use udp_stream::UdpStream;
 async fn main() -> std::io::Result<()> {
     let mut stream = UdpStream::connect(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
     println!("Ready to Connected to {}", &stream.peer_addr()?);
+    let mut buffer = String::new();
     loop {
-        let mut buffer = String::new();
         std::io::stdin().read_line(&mut buffer)?;
         stream.write_all(buffer.as_bytes()).await?;
         let mut buf = vec![0u8; 1024];

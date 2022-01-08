@@ -1,12 +1,12 @@
-use std::{io, net::SocketAddr, str::FromStr};
-
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+use std::pin::Pin;
+use std::{io, net::SocketAddr, str::FromStr};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use udp_stream::UdpStream;
 
-const SERVER_DOMAIN: &'static str = "www.securation.com";
+const SERVER_DOMAIN: &'static str = "pourali.com";
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -15,17 +15,15 @@ async fn main() -> io::Result<()> {
     let mut connector_builder = SslConnector::builder(SslMethod::dtls())?;
     connector_builder.set_verify(SslVerifyMode::NONE);
     let connector = connector_builder.build().configure().unwrap();
-
-    match tokio_openssl::connect(connector, SERVER_DOMAIN, stream).await {
-        Ok(mut dtls_stream) => loop {
-            let mut buffer = String::new();
-            io::stdin().read_line(&mut buffer)?;
-            dtls_stream.write_all(buffer.as_bytes()).await?;
-            let mut buf = vec![0u8; 1024];
-            let n = dtls_stream.read(&mut buf).await?;
-            print!("-> {}", String::from_utf8_lossy(&buf[..n]));
-        },
-
-        Err(_) => unimplemented!(),
-    };
+    let ssl = connector.into_ssl(SERVER_DOMAIN).unwrap();
+    let mut stream = tokio_openssl::SslStream::new(ssl, stream).unwrap();
+    Pin::new(&mut stream).connect().await.unwrap();
+    let mut buffer = String::new();
+    loop {
+        io::stdin().read_line(&mut buffer)?;
+        stream.write_all(buffer.as_bytes()).await?;
+        let mut buf = vec![0u8; 1024];
+        let n = stream.read(&mut buf).await?;
+        print!("-> {}", String::from_utf8_lossy(&buf[..n]));
+    }
 }

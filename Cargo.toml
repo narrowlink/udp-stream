@@ -1,39 +1,21 @@
 [package]
-name = 'udp-stream'
+authors = ['SajjadPourali <sajjad@pourali.com>']
 description = 'Implementation of UdpSocket same as TcpStream'
-version = '0.0.0-alpha.3'
-authors = ['SajjadPourali <sajjad@securation.com>']
-edition = '2018'
-license = 'MIT'
+edition = '2021'
 homepage = 'https://github.com/SajjadPourali/udp-stream'
+license = 'MIT'
+name = 'udp-stream'
+version = '0.0.1'
 
 [dependencies.tokio]
-version = '0.2'
 features = [
-    'udp',
-    'sync',
-    'rt-core',
-    'io-util',
+  "rt",
+  "sync",
+  "net",
 ]
+version = '1'
 
 [dev-dependencies]
-tokio-openssl = '0.4'
-openssl = { version = "0.10", features = ["vendored"] }
-
-[dev-dependencies.tokio]
-version = '0.2'
-features = [
-    'time',
-    'macros',
-]
-
-[profile.release]
-opt-level = 'z'
-debug = false
-rpath = false
-lto = true
-debug-assertions = false
-codegen-units = 1
-panic = 'abort'
-incremental = false
-overflow-checks = false
+openssl = {version = "0.10", features = ["vendored"]}
+tokio = {version = "1", features = ["time", "macros", "io-util", "rt-multi-thread"]}
+tokio-openssl = '0.6'

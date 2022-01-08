@@ -11,7 +11,7 @@ const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
+    let listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
     loop {
         let (mut stream, _) = listener.accept().await?;
         tokio::spawn(async move {
@@ -23,7 +23,7 @@ async fn main() -> std::io::Result<()> {
                 {
                     Ok(len) => len,
                     Err(_) => {
-                        stream.shutdown(std::net::Shutdown::Both);
+                        stream.shutdown();
                         return;
                     }
                 };

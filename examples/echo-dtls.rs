@@ -1,17 +1,15 @@
-use std::{net::SocketAddr, str::FromStr, time::Duration};
+use std::{net::SocketAddr, pin::Pin, str::FromStr, time::Duration};
+use udp_stream::UdpListener;
 
 use openssl::{
     pkey::PKey,
-    ssl::{SslAcceptor, SslMethod},
+    ssl::{Ssl, SslAcceptor, SslContext, SslMethod},
     x509::X509,
 };
-
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     time::timeout,
 };
-
-use udp_stream::UdpListener;
 
 const UDP_BUFFER_SIZE: usize = 17480; // 17kb
 const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
@@ -19,45 +17,39 @@ const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
 static SERVER_CERT: &'static [u8] = include_bytes!("server-cert.pem");
 static SERVER_KEY: &'static [u8] = include_bytes!("server-key.pem");
 
-fn ssl_acceptor(certificate: &[u8], private_key: &[u8]) -> std::io::Result<SslAcceptor> {
+fn ssl_acceptor(certificate: &[u8], private_key: &[u8]) -> std::io::Result<SslContext> {
     let mut acceptor_builder = SslAcceptor::mozilla_intermediate(SslMethod::dtls())?;
     acceptor_builder.set_certificate(&&X509::from_pem(certificate)?)?;
     acceptor_builder.set_private_key(&&PKey::private_key_from_pem(private_key)?)?;
     acceptor_builder.check_private_key()?;
     let acceptor = acceptor_builder.build();
-    Ok(acceptor)
+    Ok(acceptor.into_context())
 }
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
+    let listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
+    let acceptor = ssl_acceptor(SERVER_CERT, SERVER_KEY).unwrap();
     loop {
         let (socket, _) = listener.accept().await?;
+        let acceptor = acceptor.clone();
         tokio::spawn(async move {
-            let acceptor = ssl_acceptor(SERVER_CERT, SERVER_KEY).unwrap();
-            let stream = tokio_openssl::accept(&acceptor, socket).await;
-            match stream {
-                Ok(mut socket) => {
-                    let mut buf = vec![0u8; UDP_BUFFER_SIZE];
-                    loop {
-                        let n = match timeout(
-                            Duration::from_millis(UDP_TIMEOUT),
-                            socket.read(&mut buf),
-                        )
-                        .await
-                        .unwrap()
-                        {
-                            Ok(len) => len,
-                            Err(_) => {
-                                socket.get_ref().shutdown(std::net::Shutdown::Both);
-                                return;
-                            }
-                        };
-
-                        socket.write_all(&buf[0..n]).await.unwrap();
+            let ssl = Ssl::new(&acceptor).unwrap();
+            let mut stream = tokio_openssl::SslStream::new(ssl, socket).unwrap();
+            Pin::new(&mut stream).accept().await.unwrap();
+            let mut buf = vec![0u8; UDP_BUFFER_SIZE];
+            loop {
+                let n = match timeout(Duration::from_millis(UDP_TIMEOUT), stream.read(&mut buf))
+                    .await
+                    .unwrap()
+                {
+                    Ok(len) => len,
+                    Err(_) => {
+                        return;
                     }
-                }
-                Err(_) => unimplemented!(),
+                };
+
+                stream.write_all(&buf[0..n]).await.unwrap();
             }
         });
     }
