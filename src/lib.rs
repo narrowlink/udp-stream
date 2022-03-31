@@ -31,6 +31,7 @@ const CHANNEL_LEN: usize = 100;
 pub struct UdpListener {
     handler: tokio::task::JoinHandle<()>,
     receiver: Arc<Mutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
+    local_addr: SocketAddr,
 }
 
 impl Drop for UdpListener {
@@ -70,8 +71,9 @@ impl UdpListener {
                 SocketAddr,
                 (mpsc::Sender<(Vec<u8>, usize)>, Arc<std::sync::Mutex<bool>>),
             > = HashMap::new();
-
-            let socket = Arc::new(UdpSocket::bind(local_addr).await.unwrap());
+            let udp_socket = UdpSocket::bind(local_addr).await.unwrap();
+            let local_addr = udp_socket.local_addr().unwrap();
+            let socket = Arc::new(udp_socket);
             loop {
                 let mut buf = vec![0u8; UDP_BUFFER_SIZE];
                 let (len, addr) = socket.recv_from(&mut buf).await.unwrap();
@@ -116,9 +118,13 @@ impl UdpListener {
         Ok(Self {
             handler,
             receiver: Arc::new(Mutex::new(rx)),
+            local_addr,
         })
     }
-
+    ///Returns the local address that this socket is bound to.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        Ok(self.local_addr.clone())
+    }
     pub async fn accept(&self) -> io::Result<(UdpStream, SocketAddr)> {
         Ok((&self.receiver).lock().unwrap().recv().await.unwrap())
     }
