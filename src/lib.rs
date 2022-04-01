@@ -12,6 +12,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     net::UdpSocket,
     sync::mpsc,
+    sync::Mutex as AsyncMutex,
 };
 
 macro_rules! pin_mut {
@@ -30,7 +31,7 @@ const CHANNEL_LEN: usize = 100;
 
 pub struct UdpListener {
     handler: tokio::task::JoinHandle<()>,
-    receiver: Arc<Mutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
+    receiver: Arc<AsyncMutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
     local_addr: SocketAddr,
 }
 
@@ -117,7 +118,7 @@ impl UdpListener {
         });
         Ok(Self {
             handler,
-            receiver: Arc::new(Mutex::new(rx)),
+            receiver: Arc::new(AsyncMutex::new(rx)),
             local_addr,
         })
     }
@@ -126,7 +127,7 @@ impl UdpListener {
         Ok(self.local_addr.clone())
     }
     pub async fn accept(&self) -> io::Result<(UdpStream, SocketAddr)> {
-        Ok((&self.receiver).lock().unwrap().recv().await.unwrap())
+        Ok((&self.receiver).lock().await.recv().await.unwrap())
     }
 }
 /// An I/O object representing a UDP stream connected to a remote endpoint.
