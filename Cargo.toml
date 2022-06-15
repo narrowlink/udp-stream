@@ -5,7 +5,8 @@ edition = '2021'
 homepage = 'https://github.com/SajjadPourali/udp-stream'
 license = 'MIT'
 name = 'udp-stream'
-version = '0.0.2-dev'
+version = '0.0.2'
+keywords = ["stream", "udp", "dtls","tokio"]
 
 [dependencies.tokio]
 features = [
