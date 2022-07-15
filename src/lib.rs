@@ -89,7 +89,11 @@ impl UdpListener {
                     }
                     match streams.get_mut(&addr) {
                         Some((child_tx, _)) => {
-                            child_tx.send((buf, len)).await.unwrap();
+                            if let Err(_) = child_tx.send((buf, len)).await {
+                                child_tx.closed().await;
+                                streams.remove(&addr);
+                                continue;
+                            }
                         }
                         None => {
                             let (child_tx, child_rx): (
@@ -97,21 +101,25 @@ impl UdpListener {
                                 mpsc::Receiver<(Vec<u8>, usize)>,
                             ) = mpsc::channel(CHANNEL_LEN);
                             let drop = Arc::new(Mutex::new(false));
-                            streams.insert(addr, (child_tx.clone(), drop.clone()));
-                            child_tx.send((buf, len)).await.unwrap();
-                            tx.send((
-                                UdpStream {
-                                    local_addr: local_addr,
-                                    peer_addr: addr,
-                                    receiver: Arc::new(Mutex::new(child_rx)),
-                                    socket: socket.clone(),
-                                    handler: None,
-                                    drop: drop,
-                                },
-                                addr,
-                            ))
-                            .await
-                            .unwrap();
+                            if child_tx.send((buf, len)).await.is_err()
+                                || tx
+                                    .send((
+                                        UdpStream {
+                                            local_addr: local_addr,
+                                            peer_addr: addr,
+                                            receiver: Arc::new(Mutex::new(child_rx)),
+                                            socket: socket.clone(),
+                                            handler: None,
+                                            drop: drop.clone(),
+                                        },
+                                        addr,
+                                    ))
+                                    .await
+                                    .is_err()
+                            {
+                                continue;
+                            };
+                            streams.insert(addr, (child_tx.clone(), drop));
                         }
                     }
                 }
@@ -160,7 +168,9 @@ impl Drop for UdpStream {
         if let Some(handler) = &self.handler {
             handler.abort()
         }
-        *(&self.drop).lock().unwrap() = true;
+        if let Ok(mut drop) = (&self.drop).lock() {
+            *drop = true;
+        }
     }
 }
 
@@ -192,7 +202,10 @@ impl UdpStream {
         let handler = tokio::spawn(async move {
             let mut buf = vec![0u8; UDP_BUFFER_SIZE];
             while let Ok((len, addr)) = socket_inner.clone().recv_from(&mut buf).await {
-                child_tx.send((buf.clone(), len)).await.unwrap();
+                if child_tx.send((buf.clone(), len)).await.is_err() {
+                    child_tx.closed();
+                    break;
+                }
             }
         });
         Ok(UdpStream {
@@ -214,7 +227,9 @@ impl UdpStream {
     }
     #[allow(unused)]
     pub fn shutdown(&self) {
-        *(&self.drop).lock().unwrap() = true;
+        if let Ok(mut drop) = (&self.drop).lock() {
+            *drop = true;
+        }
     }
 }
 
@@ -224,7 +239,16 @@ impl AsyncRead for UdpStream {
         cx: &mut Context,
         buf: &mut ReadBuf,
     ) -> Poll<io::Result<()>> {
-        let mut socket = (&self.receiver).lock().unwrap();
+        let mut socket = match (&self.receiver).lock() {
+            Ok(socket) => socket,
+            Err(_) => {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "Broken Pipe",
+                )))
+            }
+        };
+        // let mut socket = (&self.receiver).lock().unwrap();
         let future = socket.recv();
         pin_mut!(future);
         future.poll(cx).map(|res| match res {
@@ -232,7 +256,7 @@ impl AsyncRead for UdpStream {
                 buf.put_slice(&inner_buf[..len]);
                 Ok(())
             }
-            None => Ok(()),
+            None => Err(io::Error::new(io::ErrorKind::BrokenPipe, "Broken Pipe")),
         })
     }
 }
@@ -244,7 +268,9 @@ impl AsyncWrite for UdpStream {
         future.poll(cx).map(|r| match r {
             Ok(r) => Ok(r),
             Err(_e) => {
-                *(&self.drop).lock().unwrap() = true;
+                if let Ok(mut drop) = (&self.drop).lock() {
+                    *drop = true;
+                }
                 Err(_e)
             }
         })
