@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, pin::Pin, str::FromStr, time::Duration};
+use std::{net::SocketAddr, pin::Pin, str::FromStr, time::Duration, error::Error};
 use udp_stream::UdpListener;
 
 use openssl::{
@@ -27,9 +27,9 @@ fn ssl_acceptor(certificate: &[u8], private_key: &[u8]) -> std::io::Result<SslCo
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
-    let listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
-    let acceptor = ssl_acceptor(SERVER_CERT, SERVER_KEY).unwrap();
+async fn main() -> Result<(), Box<dyn Error>> {
+    let listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080")?).await?;
+    let acceptor = ssl_acceptor(SERVER_CERT, SERVER_KEY)?;
     loop {
         let (socket, _) = listener.accept().await?;
         let acceptor = acceptor.clone();

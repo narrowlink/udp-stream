@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, str::FromStr, time::Duration};
+use std::{net::SocketAddr, str::FromStr, time::Duration, error::Error};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     time::timeout,
@@ -10,8 +10,8 @@ const UDP_BUFFER_SIZE: usize = 17480; // 17kb
 const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
-    let listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
+async fn main() -> Result<(), Box<dyn Error>> {
+    let listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080")?).await?;
     loop {
         let (mut stream, _) = listener.accept().await?;
         tokio::spawn(async move {

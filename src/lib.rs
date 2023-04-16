@@ -45,8 +45,8 @@ impl Drop for UdpListener {
 /// # async fn process_socket<T>(_socket: T) {}
 ///
 /// #[tokio::main]
-/// async fn main() -> io::Result<()> {
-///     let mut listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080").unwrap()).await?;
+/// async fn main() -> Result<(), Box<dyn Error>> {
+///     let mut listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080")?).await?;
 ///
 ///     loop {
 ///         let (socket, _) = listener.accept().await?;
