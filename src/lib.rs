@@ -1,9 +1,9 @@
 use std::{
     collections::HashMap,
-    io::{self},
+    io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -12,18 +12,8 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     net::UdpSocket,
     sync::mpsc,
-    sync::Mutex as AsyncMutex,
+    sync::Mutex,
 };
-
-macro_rules! pin_mut {
-    ($($x:ident),*) => { $(
-        let mut $x = $x;
-        #[allow(unused_mut)]
-        let mut $x = unsafe {
-            Pin::new_unchecked(&mut $x)
-        };
-    )* }
-}
 
 const UDP_BUFFER_SIZE: usize = 17480; // 17kb
                                       // const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
@@ -31,7 +21,7 @@ const CHANNEL_LEN: usize = 100;
 
 pub struct UdpListener {
     handler: tokio::task::JoinHandle<()>,
-    receiver: Arc<AsyncMutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
+    receiver: Arc<Mutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
     local_addr: SocketAddr,
 }
 
@@ -73,7 +63,7 @@ impl UdpListener {
         let handler = tokio::spawn(async move {
             let mut streams: HashMap<
                 SocketAddr,
-                (mpsc::Sender<(Vec<u8>, usize)>, Arc<std::sync::Mutex<bool>>),
+                (mpsc::Sender<(Vec<u8>, usize)>, Arc<Mutex<bool>>),
             > = HashMap::new();
             let socket = Arc::new(udp_socket);
             loop {
@@ -128,7 +118,7 @@ impl UdpListener {
         });
         Ok(Self {
             handler,
-            receiver: Arc::new(AsyncMutex::new(rx)),
+            receiver: Arc::new(Mutex::new(rx)),
             local_addr,
         })
     }
@@ -168,7 +158,7 @@ impl Drop for UdpStream {
         if let Some(handler) = &self.handler {
             handler.abort()
         }
-        if let Ok(mut drop) = (&self.drop).lock() {
+        if let Ok(mut drop) = (&self.drop).try_lock() {
             *drop = true;
         }
     }
@@ -227,7 +217,7 @@ impl UdpStream {
     }
     #[allow(unused)]
     pub fn shutdown(&self) {
-        if let Ok(mut drop) = (&self.drop).lock() {
+        if let Ok(mut drop) = (&self.drop).try_lock() {
             *drop = true;
         }
     }
@@ -239,41 +229,41 @@ impl AsyncRead for UdpStream {
         cx: &mut Context,
         buf: &mut ReadBuf,
     ) -> Poll<io::Result<()>> {
-        let mut socket = match (&self.receiver).lock() {
-            Ok(socket) => socket,
-            Err(_) => {
+        let mut socket = match Pin::new(&mut Box::pin(self.receiver.lock())).poll(cx) {
+            Poll::Ready(socket) => socket,
+            Poll::Pending => return Poll::Pending,
+        };
+
+        match socket.poll_recv(cx) {
+            Poll::Ready(Some((inner_buf, len))) => {
+                return {
+                    buf.put_slice(&inner_buf[..len]);
+                    Poll::Ready(Ok(()))
+                }
+            }
+            Poll::Ready(None) => {
                 return Poll::Ready(Err(io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     "Broken Pipe",
                 )))
             }
+            Poll::Pending => return Poll::Pending,
         };
-        // let mut socket = (&self.receiver).lock().unwrap();
-        let future = socket.recv();
-        pin_mut!(future);
-        future.poll(cx).map(|res| match res {
-            Some((inner_buf, len)) => {
-                buf.put_slice(&inner_buf[..len]);
-                Ok(())
-            }
-            None => Err(io::Error::new(io::ErrorKind::BrokenPipe, "Broken Pipe")),
-        })
     }
 }
 
 impl AsyncWrite for UdpStream {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
-        let future = self.socket.send_to(&buf, self.peer_addr);
-        pin_mut!(future);
-        future.poll(cx).map(|r| match r {
-            Ok(r) => Ok(r),
-            Err(_e) => {
-                if let Ok(mut drop) = (&self.drop).lock() {
+        match self.socket.poll_send_to(cx, &buf, self.peer_addr) {
+            Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
+            Poll::Ready(Err(e)) => {
+                if let Ok(mut drop) = (&self.drop).try_lock() {
                     *drop = true;
                 }
-                Err(_e)
+                Poll::Ready(Err(e))
             }
-        })
+            Poll::Pending => Poll::Pending,
+        }
     }
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
