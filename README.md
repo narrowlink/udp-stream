@@ -55,6 +55,6 @@ Contributions to `udp-stream` are welcome! If you would like to contribute to th
 
 ## License
 
-`udp-stream` is licensed under the [MIT License](https://chat.openai.com/c/LICENSE), which allows for free use, modification, and distribution, subject to the terms and conditions outlined in the license.
+`udp-stream` is licensed under the [MIT License](https://github.com/SajjadPourali/udp-stream/blob/master/LICENSE), which allows for free use, modification, and distribution, subject to the terms and conditions outlined in the license.
 
 We hope that `udp-stream` is useful for your projects! If you have any questions or need further assistance, please don't hesitate to contact us or open an issue in the repository.
