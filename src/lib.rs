@@ -184,9 +184,9 @@ impl UdpStream {
     #[allow(unused)]
     pub async fn connect(addr: SocketAddr) -> Result<Self, tokio::io::Error> {
         let local_addr: SocketAddr = if addr.is_ipv4() {
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0)
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
         } else {
-            SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 0)
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
         };
 
         let socket = Arc::new(UdpSocket::bind(local_addr).await?);
