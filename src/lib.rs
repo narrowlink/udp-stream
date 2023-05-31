@@ -7,14 +7,13 @@ use std::{
     task::{Context, Poll},
 };
 
+use bytes::{Buf, Bytes, BytesMut};
 use std::future::Future;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     net::UdpSocket,
-    sync::mpsc,
-    sync::Mutex,
+    sync::{mpsc, Mutex},
 };
-use bytes::{Bytes, BytesMut, Buf};
 
 const UDP_BUFFER_SIZE: usize = 17480; // 17kb
                                       // const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
@@ -62,56 +61,49 @@ impl UdpListener {
         let local_addr = udp_socket.local_addr()?;
 
         let handler = tokio::spawn(async move {
-            let mut streams: HashMap<
-                SocketAddr,
-                mpsc::Sender<Bytes>,
-            > = HashMap::new();
+            let mut streams: HashMap<SocketAddr, mpsc::Sender<Bytes>> = HashMap::new();
             let socket = Arc::new(udp_socket);
-            let (drop_tx,mut drop_rx) = mpsc::channel(1);
+            let (drop_tx, mut drop_rx) = mpsc::channel(1);
 
-            let mut buf = BytesMut::with_capacity(UDP_BUFFER_SIZE*3);
+            let mut buf = BytesMut::with_capacity(UDP_BUFFER_SIZE * 3);
             loop {
-                if buf.capacity() < UDP_BUFFER_SIZE{
+                if buf.capacity() < UDP_BUFFER_SIZE {
                     buf.reserve(UDP_BUFFER_SIZE * 3);
                 }
                 tokio::select! {
-                    some_drop = drop_rx.recv() => {
-                        let peer_addr = some_drop.unwrap();
+                    Some(peer_addr) = drop_rx.recv() => {
                         streams.remove(&peer_addr);
                     }
-                    received = socket.recv_buf_from(&mut buf) => {
-
-                        if let Ok((len, addr)) = received{
-                            match streams.get_mut(&addr) {
-                                Some(child_tx) => {
-                                    if let Err(_) = child_tx.send(buf.copy_to_bytes(len)).await {
-                                        child_tx.closed().await;
-                                        streams.remove(&addr);
-                                        continue;
-                                    }
+                    Ok((len, addr)) = socket.recv_buf_from(&mut buf) => {
+                        match streams.get_mut(&addr) {
+                            Some(child_tx) => {
+                                if let Err(_) = child_tx.send(buf.copy_to_bytes(len)).await {
+                                    child_tx.closed().await;
+                                    streams.remove(&addr);
+                                    continue;
                                 }
-                                None => {
-                                    let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
-                                    if child_tx.send(buf.copy_to_bytes(len)).await.is_err()
-                                    || tx
-                                        .send((
-                                            UdpStream {
-                                                local_addr: local_addr,
-                                                peer_addr: addr,
-                                                receiver: Arc::new(Mutex::new(child_rx)),
-                                                socket: socket.clone(),
-                                                handler: None,
-                                                drop: Some(drop_tx.clone()),
-                                            },
-                                            addr,
-                                        ))
-                                        .await
-                                        .is_err()
-                                    {
-                                        continue;
-                                    };
-                                    streams.insert(addr, child_tx.clone());
-                                }
+                            }
+                            None => {
+                                let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
+                                if child_tx.send(buf.copy_to_bytes(len)).await.is_err()
+                                || tx
+                                    .send((
+                                        UdpStream {
+                                            local_addr: local_addr,
+                                            peer_addr: addr,
+                                            receiver: Arc::new(Mutex::new(child_rx)),
+                                            socket: socket.clone(),
+                                            handler: None,
+                                            drop: Some(drop_tx.clone()),
+                                        },
+                                        addr,
+                                    ))
+                                    .await
+                                    .is_err()
+                                {
+                                    continue;
+                                };
+                                streams.insert(addr, child_tx.clone());
                             }
                         }
                         //error?
@@ -162,7 +154,7 @@ impl Drop for UdpStream {
             handler.abort()
         }
 
-        if let Some(drop) = &self.drop{
+        if let Some(drop) = &self.drop {
             let _ = drop.try_send(self.peer_addr.clone());
         };
     }
@@ -198,7 +190,7 @@ impl UdpStream {
                     break;
                 }
 
-                if buf.capacity() < UDP_BUFFER_SIZE{
+                if buf.capacity() < UDP_BUFFER_SIZE {
                     buf.reserve(UDP_BUFFER_SIZE * 3);
                 }
             }
@@ -222,7 +214,7 @@ impl UdpStream {
     }
     #[allow(unused)]
     pub fn shutdown(&self) {
-        if let Some(drop) = &self.drop{
+        if let Some(drop) = &self.drop {
             let _ = drop.try_send(self.peer_addr.clone());
         };
     }
@@ -262,7 +254,7 @@ impl AsyncWrite for UdpStream {
         match self.socket.poll_send_to(cx, &buf, self.peer_addr) {
             Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
             Poll::Ready(Err(e)) => {
-                if let Some(drop) = &self.drop{
+                if let Some(drop) = &self.drop {
                     let _ = drop.try_send(self.peer_addr.clone());
                 };
                 Poll::Ready(Err(e))

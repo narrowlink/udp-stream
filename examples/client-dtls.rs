@@ -26,5 +26,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let mut buf = vec![0u8; 1024];
         let n = stream.read(&mut buf).await?;
         print!("-> {}", String::from_utf8_lossy(&buf[..n]));
+        buffer.clear();
     }
 }
