@@ -13,8 +13,13 @@ features = [
   "rt",
   "sync",
   "net",
+  "macros",
+  "io-util",
 ]
 version = '1'
+
+[dependencies]
+bytes = "1.4"
 
 [dev-dependencies]
 openssl = {version = "0.10", features = ["vendored"]}
