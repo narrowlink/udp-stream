@@ -10,7 +10,7 @@
 
 -   **Stream-based**: `udp-stream` provides an abstraction layer for handling UDP packets as a continuous stream of data, using a similar function signature as `TcpStream` in the `tokio` library. This allows developers familiar with `tokio` to leverage their existing knowledge to work with UDP in a similar manner.
     
--   **Lightweight**: `udp-stream` has a small footprint and only depends on the `tokio` library, making it lightweight and easy to integrate into your existing projects.
+-   **Lightweight**: `udp-stream` has a small footprint and only depends on the `tokio` and `bytes` libraries, making it lightweight and easy to integrate into your existing projects.
     
 ## Usage
 
