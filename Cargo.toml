@@ -1,8 +1,8 @@
 [package]
-authors = ['SajjadPourali <sajjad@pourali.com>']
+authors = ['Narrowlink <opensource@narrowlink.com>']
 description = 'Implementation of UdpSocket same as TcpStream'
 edition = '2021'
-homepage = 'https://github.com/SajjadPourali/udp-stream'
+homepage = 'https://github.com/narrowlink/udp-stream'
 license = 'MIT'
 name = 'udp-stream'
 version = '0.0.8'
