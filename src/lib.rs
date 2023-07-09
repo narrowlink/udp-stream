@@ -95,6 +95,7 @@ impl UdpListener {
                                             socket: socket.clone(),
                                             handler: None,
                                             drop: Some(drop_tx.clone()),
+                                            remaining: None,
                                         },
                                         addr,
                                     ))
@@ -146,6 +147,7 @@ pub struct UdpStream {
     socket: Arc<tokio::net::UdpSocket>,
     handler: Option<tokio::task::JoinHandle<()>>,
     drop: Option<mpsc::Sender<SocketAddr>>,
+    remaining: Option<Bytes>,
 }
 
 impl Drop for UdpStream {
@@ -202,6 +204,7 @@ impl UdpStream {
             socket: socket.clone(),
             handler: Some(handler),
             drop: None,
+            remaining: None,
         })
     }
     #[allow(unused)]
@@ -222,21 +225,33 @@ impl UdpStream {
 
 impl AsyncRead for UdpStream {
     fn poll_read(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context,
         buf: &mut ReadBuf,
     ) -> Poll<io::Result<()>> {
-        let mut socket = match Pin::new(&mut Box::pin(self.receiver.lock())).poll(cx) {
+        if let Some(remaining) = self.remaining.as_mut() {
+            if buf.remaining() < remaining.len() {
+                buf.put_slice(&remaining.split_to(buf.remaining())[..]);
+            } else {
+                buf.put_slice(&remaining[..]);
+                self.remaining = None;
+            }
+            return Poll::Ready(Ok(()));
+        }
+
+        let receiver = self.receiver.clone();
+        let mut socket = match Pin::new(&mut Box::pin(receiver.lock())).poll(cx) {
             Poll::Ready(socket) => socket,
             Poll::Pending => return Poll::Pending,
         };
 
         match socket.poll_recv(cx) {
-            Poll::Ready(Some(inner_buf)) => {
-                return {
-                    buf.put_slice(&inner_buf[..]);
-                    Poll::Ready(Ok(()))
-                }
+            Poll::Ready(Some(mut inner_buf)) => {
+                if buf.remaining() < inner_buf.len() {
+                    self.remaining = Some(inner_buf.split_off(buf.remaining()));
+                };
+                buf.put_slice(&inner_buf[..]);
+                return Poll::Ready(Ok(()));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(Err(io::Error::new(
