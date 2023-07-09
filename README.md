@@ -19,7 +19,7 @@ To use `udp-stream` in your Rust project, simply add it as a dependency in your 
 toml
 
 ```[dependencies]
-udp-stream = "0.0.8"
+udp-stream = "0.0.9"
 ``` 
 
 Then, you can import and use the library in your Rust code:
