@@ -1,14 +1,13 @@
+use bytes::{Buf, Bytes, BytesMut};
 use std::{
     collections::HashMap,
+    future::Future,
     io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
-
-use bytes::{Buf, Bytes, BytesMut};
-use std::future::Future;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     net::UdpSocket,
@@ -41,7 +40,7 @@ impl Drop for UdpListener {
 /// ```no_run
 /// use udp_stream::UdpListener;
 ///
-/// use std::{io, net::SocketAddr};
+/// use std::{io, net::SocketAddr, error::Error, str::FromStr};
 /// # async fn process_socket<T>(_socket: T) {}
 ///
 /// #[tokio::main]
