@@ -252,12 +252,11 @@ impl AsyncRead for UdpStream {
                 buf.put_slice(&inner_buf[..]);
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(None) => {
-                Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "Broken Pipe",
-                )))
-            }
+            Poll::Ready(None) => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "Broken Pipe",
+            ))),
+
             Poll::Pending => Poll::Pending,
         }
     }

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, str::FromStr, time::Duration, error::Error};
+use std::{error::Error, net::SocketAddr, str::FromStr, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     time::timeout,

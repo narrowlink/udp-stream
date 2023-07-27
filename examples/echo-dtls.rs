@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, pin::Pin, str::FromStr, time::Duration, error::Error};
+use std::{error::Error, net::SocketAddr, pin::Pin, str::FromStr, time::Duration};
 use udp_stream::UdpListener;
 
 use openssl::{
