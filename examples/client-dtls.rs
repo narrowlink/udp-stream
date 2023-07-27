@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use udp_stream::UdpStream;
 
-const SERVER_DOMAIN: &'static str = "pourali.com";
+const SERVER_DOMAIN: &str = "pourali.com";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
