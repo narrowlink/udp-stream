@@ -76,7 +76,7 @@ impl UdpListener {
                     Ok((len, addr)) = socket.recv_buf_from(&mut buf) => {
                         match streams.get_mut(&addr) {
                             Some(child_tx) => {
-                                if let Err(_) = child_tx.send(buf.copy_to_bytes(len)).await {
+                                if child_tx.send(buf.copy_to_bytes(len)).await.is_err() {
                                     child_tx.closed().await;
                                     streams.remove(&addr);
                                     continue;
@@ -88,7 +88,7 @@ impl UdpListener {
                                 || tx
                                     .send((
                                         UdpStream {
-                                            local_addr: local_addr,
+                                            local_addr,
                                             peer_addr: addr,
                                             receiver: Arc::new(Mutex::new(child_rx)),
                                             socket: socket.clone(),
@@ -119,10 +119,10 @@ impl UdpListener {
     }
     ///Returns the local address that this socket is bound to.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        Ok(self.local_addr.clone())
+        Ok(self.local_addr)
     }
     pub async fn accept(&self) -> io::Result<(UdpStream, SocketAddr)> {
-        (&self.receiver)
+        self.receiver
             .lock()
             .await
             .recv()
@@ -156,7 +156,7 @@ impl Drop for UdpStream {
         }
 
         if let Some(drop) = &self.drop {
-            let _ = drop.try_send(self.peer_addr.clone());
+            let _ = drop.try_send(self.peer_addr);
         };
     }
 }
@@ -197,7 +197,7 @@ impl UdpStream {
             }
         });
         Ok(UdpStream {
-            local_addr: local_addr,
+            local_addr,
             peer_addr: addr,
             receiver: Arc::new(Mutex::new(child_rx)),
             socket: socket.clone(),
@@ -217,7 +217,7 @@ impl UdpStream {
     #[allow(unused)]
     pub fn shutdown(&self) {
         if let Some(drop) = &self.drop {
-            let _ = drop.try_send(self.peer_addr.clone());
+            let _ = drop.try_send(self.peer_addr);
         };
     }
 }
@@ -250,26 +250,26 @@ impl AsyncRead for UdpStream {
                     self.remaining = Some(inner_buf.split_off(buf.remaining()));
                 };
                 buf.put_slice(&inner_buf[..]);
-                return Poll::Ready(Ok(()));
+                Poll::Ready(Ok(()))
             }
             Poll::Ready(None) => {
-                return Poll::Ready(Err(io::Error::new(
+                Poll::Ready(Err(io::Error::new(
                     io::ErrorKind::BrokenPipe,
                     "Broken Pipe",
                 )))
             }
-            Poll::Pending => return Poll::Pending,
-        };
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
 impl AsyncWrite for UdpStream {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
-        match self.socket.poll_send_to(cx, &buf, self.peer_addr) {
+        match self.socket.poll_send_to(cx, buf, self.peer_addr) {
             Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
             Poll::Ready(Err(e)) => {
                 if let Some(drop) = &self.drop {
-                    let _ = drop.try_send(self.peer_addr.clone());
+                    let _ = drop.try_send(self.peer_addr);
                 };
                 Poll::Ready(Err(e))
             }
