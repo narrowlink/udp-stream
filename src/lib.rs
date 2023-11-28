@@ -18,18 +18,6 @@ const UDP_BUFFER_SIZE: usize = 17480; // 17kb
                                       // const UDP_TIMEOUT: u64 = 10 * 1000; // 10sec
 const CHANNEL_LEN: usize = 100;
 
-pub struct UdpListener {
-    handler: tokio::task::JoinHandle<()>,
-    receiver: Arc<Mutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
-    local_addr: SocketAddr,
-}
-
-impl Drop for UdpListener {
-    fn drop(&mut self) {
-        self.handler.abort();
-    }
-}
-
 /// An I/O object representing a UDP socket listening for incoming connections.
 ///
 /// This object can be converted into a stream of incoming connections for
@@ -53,6 +41,18 @@ impl Drop for UdpListener {
 ///     }
 /// }
 /// ```
+pub struct UdpListener {
+    handler: tokio::task::JoinHandle<()>,
+    receiver: Arc<Mutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
+    local_addr: SocketAddr,
+}
+
+impl Drop for UdpListener {
+    fn drop(&mut self) {
+        self.handler.abort();
+    }
+}
+
 impl UdpListener {
     pub async fn bind(local_addr: SocketAddr) -> io::Result<Self> {
         let (tx, rx) = mpsc::channel(CHANNEL_LEN);
@@ -76,7 +76,8 @@ impl UdpListener {
                     Ok((len, addr)) = socket.recv_buf_from(&mut buf) => {
                         match streams.get_mut(&addr) {
                             Some(child_tx) => {
-                                if child_tx.send(buf.copy_to_bytes(len)).await.is_err() {
+                                if let Err(err) = child_tx.send(buf.copy_to_bytes(len)).await {
+                                    log::error!("child_tx.send {:?}", err);
                                     child_tx.closed().await;
                                     streams.remove(&addr);
                                     continue;
@@ -84,29 +85,26 @@ impl UdpListener {
                             }
                             None => {
                                 let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
-                                if child_tx.send(buf.copy_to_bytes(len)).await.is_err()
-                                || tx
-                                    .send((
-                                        UdpStream {
-                                            local_addr,
-                                            peer_addr: addr,
-                                            receiver: Arc::new(Mutex::new(child_rx)),
-                                            socket: socket.clone(),
-                                            handler: None,
-                                            drop: Some(drop_tx.clone()),
-                                            remaining: None,
-                                        },
-                                        addr,
-                                    ))
-                                    .await
-                                    .is_err()
-                                {
+                                if let Err(err) = child_tx.send(buf.copy_to_bytes(len)).await {
+                                    log::error!("child_tx.send {:?}", err);
                                     continue;
+                                }
+                                let udp_stream = UdpStream {
+                                    local_addr,
+                                    peer_addr: addr,
+                                    receiver: Arc::new(Mutex::new(child_rx)),
+                                    socket: socket.clone(),
+                                    handler: None,
+                                    drop: Some(drop_tx.clone()),
+                                    remaining: None,
                                 };
+                                if let Err(err) = tx.send((udp_stream, addr)).await {
+                                    log::error!("tx.send {:?}", err);
+                                    continue;
+                                }
                                 streams.insert(addr, child_tx.clone());
                             }
                         }
-                        //error?
                     }
                 }
             }
@@ -117,19 +115,19 @@ impl UdpListener {
             local_addr,
         })
     }
+
     ///Returns the local address that this socket is bound to.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         Ok(self.local_addr)
     }
+
+    /// Accepts a new incoming UDP connection.
     pub async fn accept(&self) -> io::Result<(UdpStream, SocketAddr)> {
-        self.receiver
-            .lock()
-            .await
-            .recv()
-            .await
-            .ok_or(io::Error::new(io::ErrorKind::BrokenPipe, "Broken Pipe"))
+        let err = io::Error::new(io::ErrorKind::BrokenPipe, "Broken Pipe");
+        self.receiver.lock().await.recv().await.ok_or(err)
     }
 }
+
 /// An I/O object representing a UDP stream connected to a remote endpoint.
 ///
 /// A UDP stream can either be created by connecting to an endpoint, via the
@@ -244,6 +242,7 @@ impl AsyncRead for UdpStream {
             Poll::Pending => return Poll::Pending,
         };
 
+        let err = Err(io::Error::new(io::ErrorKind::BrokenPipe, "Broken Pipe"));
         match socket.poll_recv(cx) {
             Poll::Ready(Some(mut inner_buf)) => {
                 if buf.remaining() < inner_buf.len() {
@@ -252,11 +251,7 @@ impl AsyncRead for UdpStream {
                 buf.put_slice(&inner_buf[..]);
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(None) => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "Broken Pipe",
-            ))),
-
+            Poll::Ready(None) => Poll::Ready(err),
             Poll::Pending => Poll::Pending,
         }
     }

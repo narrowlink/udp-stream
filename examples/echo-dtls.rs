@@ -41,10 +41,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Pin::new(&mut stream).accept().await.unwrap();
             let mut buf = vec![0u8; UDP_BUFFER_SIZE];
             loop {
-                let n = match timeout(Duration::from_millis(UDP_TIMEOUT), stream.read(&mut buf))
-                    .await
-                    .unwrap()
-                {
+                let duration = Duration::from_millis(UDP_TIMEOUT);
+                let n = match timeout(duration, stream.read(&mut buf)).await.unwrap() {
                     Ok(len) => len,
                     Err(_) => {
                         return;
