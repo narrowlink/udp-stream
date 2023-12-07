@@ -20,7 +20,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --all-features --all-targets --verbose
+          args: --all-features --all-targets --verbose --examples
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
