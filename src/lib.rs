@@ -166,55 +166,23 @@ impl UdpStream {
     /// the `addr` provided. The returned future will be resolved once the
     /// stream has successfully connected, or it will return an error if one
     /// occurs.
-    #[allow(unused)]
+
     pub async fn connect(peer_addr: SocketAddr) -> Result<Self, tokio::io::Error> {
         let local_addr: SocketAddr = if peer_addr.is_ipv4() {
             SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
         } else {
             SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
         };
-
-        let socket = Arc::new(UdpSocket::bind(local_addr).await?);
-        let local_addr = socket.local_addr()?;
-        // socket.connect(&peer_addr);
-        let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
-
-        // let drop = Arc::new(Mutex::new(false));
-        let socket_inner = socket.clone();
-        let handler = tokio::spawn(async move {
-            let mut buf = BytesMut::with_capacity(UDP_BUFFER_SIZE);
-            while let Ok((len, addr)) = socket_inner.clone().recv_buf_from(&mut buf).await {
-                if child_tx.send(buf.copy_to_bytes(len)).await.is_err() {
-                    child_tx.closed().await;
-                    break;
-                }
-
-                if buf.capacity() < UDP_BUFFER_SIZE {
-                    buf.reserve(UDP_BUFFER_SIZE * 3);
-                }
-            }
-        });
-        Ok(UdpStream {
-            local_addr,
-            peer_addr,
-            receiver: Arc::new(Mutex::new(child_rx)),
-            socket: socket.clone(),
-            handler: Some(handler),
-            drop: None,
-            remaining: None,
-        })
+        Self::from_tokio(UdpSocket::bind(local_addr).await?).await
     }
-    /// Creates new UdpStream from a std::net::UdpSocket.
-    /// This function is intended to be used to wrap a UDP socket from the standard library.
+    /// Creates new UdpStream from a tokio::net::UdpSocket.
+    /// This function is intended to be used to wrap a UDP socket from the tokio library.
     #[allow(unused)]
-    pub async fn from_std(socket: std::net::UdpSocket) -> Result<Self, tokio::io::Error> {
+    pub async fn from_tokio(socket: UdpSocket) -> Result<Self, tokio::io::Error> {
         let peer_addr = socket.peer_addr()?;
         let local_addr = socket.local_addr()?;
-        let socket = Arc::new(UdpSocket::from_std(socket)?);
-        // socket.connect(&peer_addr).await?;
+        let socket = Arc::new(socket);
         let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
-
-        // let drop = Arc::new(Mutex::new(false));
         let socket_inner = socket.clone();
         let handler = tokio::spawn(async move {
             let mut buf = BytesMut::with_capacity(UDP_BUFFER_SIZE);
@@ -233,7 +201,7 @@ impl UdpStream {
             local_addr,
             peer_addr,
             receiver: Arc::new(Mutex::new(child_rx)),
-            socket: socket.clone(),
+            socket,
             handler: Some(handler),
             drop: None,
             remaining: None,
