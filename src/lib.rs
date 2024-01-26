@@ -73,13 +73,13 @@ impl UdpListener {
                     Some(peer_addr) = drop_rx.recv() => {
                         streams.remove(&peer_addr);
                     }
-                    Ok((len, addr)) = socket.recv_buf_from(&mut buf) => {
-                        match streams.get_mut(&addr) {
+                    Ok((len, peer_addr)) = socket.recv_buf_from(&mut buf) => {
+                        match streams.get_mut(&peer_addr) {
                             Some(child_tx) => {
                                 if let Err(err) = child_tx.send(buf.copy_to_bytes(len)).await {
                                     log::error!("child_tx.send {:?}", err);
                                     child_tx.closed().await;
-                                    streams.remove(&addr);
+                                    streams.remove(&peer_addr);
                                     continue;
                                 }
                             }
@@ -89,20 +89,24 @@ impl UdpListener {
                                     log::error!("child_tx.send {:?}", err);
                                     continue;
                                 }
+                                if let Err(e) = socket.connect(&peer_addr).await{
+                                    log::error!("socket.connect {:?}", e);
+                                    continue;
+                                }
                                 let udp_stream = UdpStream {
                                     local_addr,
-                                    peer_addr: addr,
+                                    peer_addr,
                                     receiver: Arc::new(Mutex::new(child_rx)),
                                     socket: socket.clone(),
                                     handler: None,
                                     drop: Some(drop_tx.clone()),
                                     remaining: None,
                                 };
-                                if let Err(err) = tx.send((udp_stream, addr)).await {
+                                if let Err(err) = tx.send((udp_stream, peer_addr)).await {
                                     log::error!("tx.send {:?}", err);
                                     continue;
                                 }
-                                streams.insert(addr, child_tx.clone());
+                                streams.insert(peer_addr, child_tx.clone());
                             }
                         }
                     }
@@ -166,27 +170,36 @@ impl UdpStream {
     /// the `addr` provided. The returned future will be resolved once the
     /// stream has successfully connected, or it will return an error if one
     /// occurs.
-
-    pub async fn connect(peer_addr: SocketAddr) -> Result<Self, tokio::io::Error> {
-        let local_addr: SocketAddr = if peer_addr.is_ipv4() {
+    pub async fn connect(addr: SocketAddr) -> Result<Self, tokio::io::Error> {
+        let local_addr: SocketAddr = if addr.is_ipv4() {
             SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
         } else {
             SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
         };
-        Self::from_tokio(UdpSocket::bind(local_addr).await?).await
+        let socket = UdpSocket::bind(local_addr).await?;
+        socket.connect(&addr).await?;
+        Self::from_tokio(socket).await
     }
-    /// Creates new UdpStream from a tokio::net::UdpSocket.
+    /// Creates a new UdpStream from a tokio::net::UdpSocket.
     /// This function is intended to be used to wrap a UDP socket from the tokio library.
-    #[allow(unused)]
+    /// Note: The UdpSocket must have the UdpSocket::connect method called before invoking this function.
     pub async fn from_tokio(socket: UdpSocket) -> Result<Self, tokio::io::Error> {
-        let peer_addr = socket.peer_addr()?;
-        let local_addr = socket.local_addr()?;
         let socket = Arc::new(socket);
+
+        let local_addr = socket.local_addr()?;
+        let peer_addr = socket.peer_addr()?;
+
         let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
+
         let socket_inner = socket.clone();
+
         let handler = tokio::spawn(async move {
             let mut buf = BytesMut::with_capacity(UDP_BUFFER_SIZE);
-            while let Ok((len, addr)) = socket_inner.clone().recv_buf_from(&mut buf).await {
+            while let Ok((len, received_addr)) = socket_inner.clone().recv_buf_from(&mut buf).await
+            {
+                if received_addr != peer_addr {
+                    continue;
+                }
                 if child_tx.send(buf.copy_to_bytes(len)).await.is_err() {
                     child_tx.closed().await;
                     break;
@@ -197,26 +210,24 @@ impl UdpStream {
                 }
             }
         });
+
         Ok(UdpStream {
             local_addr,
             peer_addr,
             receiver: Arc::new(Mutex::new(child_rx)),
-            socket,
+            socket: socket.clone(),
             handler: Some(handler),
             drop: None,
             remaining: None,
         })
     }
 
-    #[allow(unused)]
     pub fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.peer_addr)
     }
-    #[allow(unused)]
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_addr)
     }
-    #[allow(unused)]
     pub fn shutdown(&self) {
         if let Some(drop) = &self.drop {
             let _ = drop.try_send(self.peer_addr);
@@ -263,7 +274,7 @@ impl AsyncRead for UdpStream {
 
 impl AsyncWrite for UdpStream {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
-        match self.socket.poll_send_to(cx, buf, self.peer_addr) {
+        match self.socket.poll_send(cx, buf) {
             Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
             Poll::Ready(Err(e)) => {
                 if let Some(drop) = &self.drop {
