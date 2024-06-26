@@ -123,8 +123,12 @@ impl UdpListener {
 
     /// Accepts a new incoming UDP connection.
     pub async fn accept(&self) -> io::Result<(UdpStream, SocketAddr)> {
-        let err = io::Error::new(io::ErrorKind::BrokenPipe, "Broken Pipe");
-        self.receiver.lock().await.recv().await.ok_or(err)
+        self.receiver
+            .lock()
+            .await
+            .recv()
+            .await
+            .ok_or(io::Error::from(io::ErrorKind::BrokenPipe))
     }
 }
 
@@ -254,7 +258,6 @@ impl AsyncRead for UdpStream {
             Poll::Pending => return Poll::Pending,
         };
 
-        let err = Err(io::Error::new(io::ErrorKind::BrokenPipe, "Broken Pipe"));
         match socket.poll_recv(cx) {
             Poll::Ready(Some(mut inner_buf)) => {
                 if buf.remaining() < inner_buf.len() {
@@ -263,7 +266,7 @@ impl AsyncRead for UdpStream {
                 buf.put_slice(&inner_buf[..]);
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(None) => Poll::Ready(err),
+            Poll::Ready(None) => Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe))),
             Poll::Pending => Poll::Pending,
         }
     }
