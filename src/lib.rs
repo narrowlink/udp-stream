@@ -173,17 +173,18 @@ impl UdpStream {
             SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
         };
         let socket = UdpSocket::bind(local_addr).await?;
-        socket.connect(&addr).await?;
-        Self::from_tokio(socket).await
+        Self::from_tokio(socket, addr).await
     }
     /// Creates a new UdpStream from a tokio::net::UdpSocket.
     /// This function is intended to be used to wrap a UDP socket from the tokio library.
     /// Note: The UdpSocket must have the UdpSocket::connect method called before invoking this function.
-    pub async fn from_tokio(socket: UdpSocket) -> Result<Self, tokio::io::Error> {
+    pub async fn from_tokio(
+        socket: UdpSocket,
+        peer_addr: SocketAddr,
+    ) -> Result<Self, tokio::io::Error> {
         let socket = Arc::new(socket);
 
         let local_addr = socket.local_addr()?;
-        let peer_addr = socket.peer_addr()?;
 
         let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
 
