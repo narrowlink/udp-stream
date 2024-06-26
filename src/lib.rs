@@ -89,10 +89,6 @@ impl UdpListener {
                                     log::error!("child_tx.send {:?}", err);
                                     continue;
                                 }
-                                if let Err(e) = socket.connect(&peer_addr).await{
-                                    log::error!("socket.connect {:?}", e);
-                                    continue;
-                                }
                                 let udp_stream = UdpStream {
                                     local_addr,
                                     peer_addr,
@@ -274,7 +270,7 @@ impl AsyncRead for UdpStream {
 
 impl AsyncWrite for UdpStream {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
-        match self.socket.poll_send(cx, buf) {
+        match self.socket.poll_send_to(cx, buf, self.peer_addr) {
             Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
             Poll::Ready(Err(e)) => {
                 if let Some(drop) = &self.drop {
