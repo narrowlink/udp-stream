@@ -54,11 +54,12 @@ impl Drop for UdpListener {
 }
 
 impl UdpListener {
+    /// Binds the `UdpListener` to the given local address.
     pub async fn bind(local_addr: SocketAddr) -> io::Result<Self> {
         let udp_socket = UdpSocket::bind(local_addr).await?;
         Self::from_tokio(udp_socket).await
     }
-
+    /// Creates a `UdpListener` from an existing `tokio::net::UdpSocket`.
     pub async fn from_tokio(udp_socket: UdpSocket) -> io::Result<Self> {
         let (tx, rx) = mpsc::channel(CHANNEL_LEN);
         let local_addr = udp_socket.local_addr()?;
