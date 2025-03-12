@@ -16,25 +16,20 @@
 
 To use `udp-stream` in your Rust project, simply add it as a dependency in your `Cargo.toml` file:
 
-toml
-
-```[dependencies]
-udp-stream = "0.0.12"
+```toml
+[dependencies]
+udp-stream = "0.1"
 ``` 
 
 Then, you can import and use the library in your Rust code:
 
-rust
-
-```
+```rust,no_run
 use std::{net::SocketAddr, str::FromStr};
-
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
 use udp_stream::UdpStream;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = UdpStream::connect(SocketAddr::from_str("127.0.0.1:8080")?).await?;
     println!("Ready to Connected to {}", &stream.peer_addr()?);
     let mut buffer = String::new();

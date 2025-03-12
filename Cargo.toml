@@ -5,7 +5,7 @@ edition = '2021'
 repository = 'https://github.com/narrowlink/udp-stream'
 license = 'MIT'
 name = 'udp-stream'
-version = '0.0.12'
+version = '0.1.0'
 keywords = ["stream", "udp", "dtls", "tokio"]
 
 [dependencies]
@@ -14,7 +14,7 @@ log = "0.4"
 tokio = { version = "1", features = ["rt", "sync", "net", "macros", "io-util"] }
 
 [dev-dependencies]
-env_logger = "0.10"
+env_logger = "0.11"
 openssl = { version = "0.10", features = ["vendored"] }
 tokio = { version = "1", features = ["time", "rt-multi-thread"] }
 tokio-openssl = '0.6'
