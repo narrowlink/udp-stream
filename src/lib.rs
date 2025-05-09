@@ -286,10 +286,14 @@ impl AsyncWrite for UdpStream {
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<std::io::Result<()>> {
         Poll::Ready(Ok(()))
     }
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<std::io::Result<()>> {
-        if let Some(drop) = &self.drop {
-            let _ = drop.try_send(self.peer_addr);
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context) -> Poll<std::io::Result<()>> {
+        let Some(drop) = &self.drop else {
+            return Poll::Ready(Ok(()));
         };
-        Poll::Ready(Ok(()))
+        match Box::pin(drop.send(self.peer_addr)).as_mut().poll(cx) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::other(e))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
