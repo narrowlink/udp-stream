@@ -129,6 +129,10 @@ impl UdpListener {
     }
 
     /// Accepts a new incoming UDP connection.
+    ///
+    /// This function waits for a new UDP connection and returns a `UdpStream`
+    /// representing the connection to the remote endpoint. The `UdpStream` is
+    /// wrapped in a `std::io::Result` to handle potential errors.
     pub async fn accept(&self) -> std::io::Result<UdpStream> {
         self.receiver
             .lock()
