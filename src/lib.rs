@@ -37,14 +37,14 @@ const CHANNEL_LEN: usize = 100;
 ///     let mut listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080")?).await?;
 ///
 ///     loop {
-///         let socket = listener.accept().await?;
+///         let (socket, _) = listener.accept().await?;
 ///         process_socket(socket).await;
 ///     }
 /// }
 /// ```
 pub struct UdpListener {
     handler: tokio::task::JoinHandle<()>,
-    receiver: Arc<Mutex<mpsc::Receiver<UdpStream>>>,
+    receiver: Arc<Mutex<mpsc::Receiver<(UdpStream, SocketAddr)>>>,
     local_addr: SocketAddr,
 }
 
@@ -105,7 +105,7 @@ impl UdpListener {
                                     drop: Some(drop_tx.clone()),
                                     remaining: None,
                                 };
-                                if let Err(err) = tx.send(udp_stream).await {
+                                if let Err(err) = tx.send((udp_stream, peer_addr)).await {
                                     log::error!("tx.send {:?}", err);
                                     continue;
                                 }
@@ -129,11 +129,7 @@ impl UdpListener {
     }
 
     /// Accepts a new incoming UDP connection.
-    ///
-    /// This function waits for a new UDP connection and returns a `UdpStream`
-    /// representing the connection to the remote endpoint. The `UdpStream` is
-    /// wrapped in a `std::io::Result` to handle potential errors.
-    pub async fn accept(&self) -> std::io::Result<UdpStream> {
+    pub async fn accept(&self) -> std::io::Result<(UdpStream, SocketAddr)> {
         self.receiver
             .lock()
             .await

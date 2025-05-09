@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let listener = udp_stream::UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080")?).await?;
     loop {
-        let mut stream = listener.accept().await?;
+        let (mut stream, _) = listener.accept().await?;
         tokio::spawn(async move {
             let id = std::thread::current().id();
             let block = async move {

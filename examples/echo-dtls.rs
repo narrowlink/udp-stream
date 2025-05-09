@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let listener = UdpListener::bind(SocketAddr::from_str("127.0.0.1:8080")?).await?;
     let acceptor = ssl_acceptor(SERVER_CERT, SERVER_KEY)?;
     loop {
-        let socket = listener.accept().await?;
+        let (socket, _) = listener.accept().await?;
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
             let ssl = Ssl::new(&acceptor).unwrap();
