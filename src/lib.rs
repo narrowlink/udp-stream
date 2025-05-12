@@ -103,6 +103,7 @@ impl UdpListener {
                                     socket: socket.clone(),
                                     handler: None,
                                     drop: Some(drop_tx.clone()),
+                                    drop_sent: false,
                                     remaining: None,
                                 };
                                 if let Err(err) = tx.send((udp_stream, peer_addr)).await {
@@ -155,6 +156,7 @@ pub struct UdpStream {
     socket: Arc<tokio::net::UdpSocket>,
     handler: Option<tokio::task::JoinHandle<()>>,
     drop: Option<mpsc::Sender<SocketAddr>>,
+    drop_sent: bool,
     remaining: Option<Bytes>,
 }
 
@@ -164,9 +166,13 @@ impl Drop for UdpStream {
             handler.abort()
         }
 
-        if let Some(drop) = &self.drop {
-            let _ = drop.try_send(self.peer_addr);
-        };
+        if !self.drop_sent {
+            if let Some(drop) = &self.drop {
+                if drop.try_send(self.peer_addr).is_ok() {
+                    self.drop_sent = true;
+                }
+            }
+        }
     }
 }
 
@@ -222,6 +228,7 @@ impl UdpStream {
             socket: socket.clone(),
             handler: Some(handler),
             drop: None,
+            drop_sent: false,
             remaining: None,
         })
     }
@@ -267,13 +274,17 @@ impl AsyncRead for UdpStream {
 }
 
 impl AsyncWrite for UdpStream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<std::io::Result<usize>> {
         match self.socket.poll_send_to(cx, buf, self.peer_addr) {
             Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
             Poll::Ready(Err(e)) => {
-                if let Some(drop) = &self.drop {
-                    let _ = drop.try_send(self.peer_addr);
-                };
+                if !self.drop_sent {
+                    if let Some(drop) = &self.drop {
+                        if drop.try_send(self.peer_addr).is_ok() {
+                            self.drop_sent = true;
+                        }
+                    }
+                }
                 Poll::Ready(Err(e))
             }
             Poll::Pending => Poll::Pending,
@@ -282,14 +293,21 @@ impl AsyncWrite for UdpStream {
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<std::io::Result<()>> {
         Poll::Ready(Ok(()))
     }
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context) -> Poll<std::io::Result<()>> {
-        let Some(drop) = &self.drop else {
-            return Poll::Ready(Ok(()));
-        };
-        match Box::pin(drop.send(self.peer_addr)).as_mut().poll(cx) {
-            Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::other(e))),
-            Poll::Pending => Poll::Pending,
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<std::io::Result<()>> {
+        if let Some(drop) = &self.drop {
+            if self.drop_sent {
+                return Poll::Ready(Ok(()));
+            }
+            let val = match Box::pin(drop.send(self.peer_addr)).as_mut().poll(cx) {
+                Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
+                Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::other(e))),
+                Poll::Pending => Poll::Pending,
+            };
+            if val.is_ready() {
+                self.drop_sent = true;
+            }
+            return val;
         }
+        Poll::Ready(Ok(()))
     }
 }
