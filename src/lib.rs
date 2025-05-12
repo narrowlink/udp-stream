@@ -166,12 +166,8 @@ impl Drop for UdpStream {
             handler.abort()
         }
 
-        if !self.drop_sent {
-            if let Some(drop) = &self.drop {
-                if drop.try_send(self.peer_addr).is_ok() {
-                    self.drop_sent = true;
-                }
-            }
+        if let Err(e) = self.send_drop_helper() {
+            log::error!("drop send_drop_helper {:?}", e);
         }
     }
 }
@@ -239,6 +235,18 @@ impl UdpStream {
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_addr)
     }
+
+    fn send_drop_helper(&mut self) -> std::io::Result<()> {
+        if !self.drop_sent {
+            if let Some(drop) = &self.drop {
+                match drop.try_send(self.peer_addr) {
+                    Ok(_) => self.drop_sent = true,
+                    Err(err) => return Err(std::io::Error::other(err)),
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl AsyncRead for UdpStream {
@@ -278,12 +286,8 @@ impl AsyncWrite for UdpStream {
         match self.socket.poll_send_to(cx, buf, self.peer_addr) {
             Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
             Poll::Ready(Err(e)) => {
-                if !self.drop_sent {
-                    if let Some(drop) = &self.drop {
-                        if drop.try_send(self.peer_addr).is_ok() {
-                            self.drop_sent = true;
-                        }
-                    }
+                if let Err(err) = self.send_drop_helper() {
+                    log::error!("poll_write send_drop_helper {:?}", err);
                 }
                 Poll::Ready(Err(e))
             }
@@ -294,13 +298,7 @@ impl AsyncWrite for UdpStream {
         Poll::Ready(Ok(()))
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context) -> Poll<std::io::Result<()>> {
-        if !self.drop_sent {
-            if let Some(drop) = &self.drop {
-                if drop.try_send(self.peer_addr).is_ok() {
-                    self.drop_sent = true;
-                }
-            }
-        }
+        self.send_drop_helper()?;
         Poll::Ready(Ok(()))
     }
 }
