@@ -1,8 +1,9 @@
+#![doc = include_str!("../README.md")]
+
 use bytes::{Buf, Bytes, BytesMut};
 use std::{
     collections::HashMap,
     future::Future,
-    io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     pin::Pin,
     sync::Arc,
@@ -55,12 +56,13 @@ impl Drop for UdpListener {
 
 impl UdpListener {
     /// Binds the `UdpListener` to the given local address.
-    pub async fn bind(local_addr: SocketAddr) -> io::Result<Self> {
+    pub async fn bind(local_addr: SocketAddr) -> std::io::Result<Self> {
         let udp_socket = UdpSocket::bind(local_addr).await?;
         Self::from_tokio(udp_socket).await
     }
+
     /// Creates a `UdpListener` from an existing `tokio::net::UdpSocket`.
-    pub async fn from_tokio(udp_socket: UdpSocket) -> io::Result<Self> {
+    pub async fn from_tokio(udp_socket: UdpSocket) -> std::io::Result<Self> {
         let (tx, rx) = mpsc::channel(CHANNEL_LEN);
         let local_addr = udp_socket.local_addr()?;
 
@@ -101,6 +103,7 @@ impl UdpListener {
                                     socket: socket.clone(),
                                     handler: None,
                                     drop: Some(drop_tx.clone()),
+                                    drop_sent: false,
                                     remaining: None,
                                 };
                                 if let Err(err) = tx.send((udp_stream, peer_addr)).await {
@@ -122,18 +125,18 @@ impl UdpListener {
     }
 
     ///Returns the local address that this socket is bound to.
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_addr)
     }
 
     /// Accepts a new incoming UDP connection.
-    pub async fn accept(&self) -> io::Result<(UdpStream, SocketAddr)> {
+    pub async fn accept(&self) -> std::io::Result<(UdpStream, SocketAddr)> {
         self.receiver
             .lock()
             .await
             .recv()
             .await
-            .ok_or(io::Error::from(io::ErrorKind::BrokenPipe))
+            .ok_or(std::io::Error::from(std::io::ErrorKind::BrokenPipe))
     }
 }
 
@@ -153,6 +156,7 @@ pub struct UdpStream {
     socket: Arc<tokio::net::UdpSocket>,
     handler: Option<tokio::task::JoinHandle<()>>,
     drop: Option<mpsc::Sender<SocketAddr>>,
+    drop_sent: bool,
     remaining: Option<Bytes>,
 }
 
@@ -162,9 +166,9 @@ impl Drop for UdpStream {
             handler.abort()
         }
 
-        if let Some(drop) = &self.drop {
-            let _ = drop.try_send(self.peer_addr);
-        };
+        if let Err(e) = self.send_drop_helper() {
+            log::error!("drop send_drop_helper {:?}", e);
+        }
     }
 }
 
@@ -187,10 +191,7 @@ impl UdpStream {
     /// Creates a new UdpStream from a tokio::net::UdpSocket.
     /// This function is intended to be used to wrap a UDP socket from the tokio library.
     /// Note: The UdpSocket must have the UdpSocket::connect method called before invoking this function.
-    pub async fn from_tokio(
-        socket: UdpSocket,
-        peer_addr: SocketAddr,
-    ) -> Result<Self, tokio::io::Error> {
+    pub async fn from_tokio(socket: UdpSocket, peer_addr: SocketAddr) -> Result<Self, tokio::io::Error> {
         let socket = Arc::new(socket);
 
         let local_addr = socket.local_addr()?;
@@ -201,8 +202,7 @@ impl UdpStream {
 
         let handler = tokio::spawn(async move {
             let mut buf = BytesMut::with_capacity(UDP_BUFFER_SIZE);
-            while let Ok((len, received_addr)) = socket_inner.clone().recv_buf_from(&mut buf).await
-            {
+            while let Ok((len, received_addr)) = socket_inner.clone().recv_buf_from(&mut buf).await {
                 if received_addr != peer_addr {
                     continue;
                 }
@@ -224,6 +224,7 @@ impl UdpStream {
             socket: socket.clone(),
             handler: Some(handler),
             drop: None,
+            drop_sent: false,
             remaining: None,
         })
     }
@@ -234,19 +235,22 @@ impl UdpStream {
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_addr)
     }
-    pub fn shutdown(&self) {
-        if let Some(drop) = &self.drop {
-            let _ = drop.try_send(self.peer_addr);
-        };
+
+    fn send_drop_helper(&mut self) -> std::io::Result<()> {
+        if !self.drop_sent {
+            if let Some(drop) = &self.drop {
+                match drop.try_send(self.peer_addr) {
+                    Ok(_) => self.drop_sent = true,
+                    Err(err) => return Err(std::io::Error::other(err)),
+                }
+            }
+        }
+        Ok(())
     }
 }
 
 impl AsyncRead for UdpStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-        buf: &mut ReadBuf,
-    ) -> Poll<io::Result<()>> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context, buf: &mut ReadBuf) -> Poll<std::io::Result<()>> {
         if let Some(remaining) = self.remaining.as_mut() {
             if buf.remaining() < remaining.len() {
                 buf.put_slice(&remaining.split_to(buf.remaining())[..]);
@@ -271,29 +275,30 @@ impl AsyncRead for UdpStream {
                 buf.put_slice(&inner_buf[..]);
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(None) => Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe))),
+            Poll::Ready(None) => Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe))),
             Poll::Pending => Poll::Pending,
         }
     }
 }
 
 impl AsyncWrite for UdpStream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<std::io::Result<usize>> {
         match self.socket.poll_send_to(cx, buf, self.peer_addr) {
             Poll::Ready(Ok(r)) => Poll::Ready(Ok(r)),
             Poll::Ready(Err(e)) => {
-                if let Some(drop) = &self.drop {
-                    let _ = drop.try_send(self.peer_addr);
-                };
+                if let Err(err) = self.send_drop_helper() {
+                    log::error!("poll_write send_drop_helper {:?}", err);
+                }
                 Poll::Ready(Err(e))
             }
             Poll::Pending => Poll::Pending,
         }
     }
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<std::io::Result<()>> {
         Poll::Ready(Ok(()))
     }
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context) -> Poll<std::io::Result<()>> {
+        self.send_drop_helper()?;
         Poll::Ready(Ok(()))
     }
 }
