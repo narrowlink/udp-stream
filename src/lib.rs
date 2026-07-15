@@ -204,6 +204,7 @@ impl UdpStream {
             while let Ok((len, received_addr)) = socket_inner.clone().recv_buf_from(&mut buf).await
             {
                 if received_addr != peer_addr {
+                    buf.clear();
                     continue;
                 }
                 if child_tx.send(buf.copy_to_bytes(len)).await.is_err() {
