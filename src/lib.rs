@@ -83,7 +83,6 @@ impl UdpListener {
                             Some(child_tx) => {
                                 if let Err(err) = child_tx.send(buf.copy_to_bytes(len)).await {
                                     log::error!("child_tx.send {:?}", err);
-                                    child_tx.closed().await;
                                     streams.remove(&peer_addr);
                                     continue;
                                 }
@@ -208,7 +207,6 @@ impl UdpStream {
                     continue;
                 }
                 if child_tx.send(buf.copy_to_bytes(len)).await.is_err() {
-                    child_tx.closed().await;
                     break;
                 }
 
