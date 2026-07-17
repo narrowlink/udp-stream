@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level)).init();
 
     let mut stream = UdpStream::connect(SocketAddr::from_str("127.0.0.1:8080")?).await?;
-    log::info!("Connected to {}", &stream.peer_addr()?);
+    log::info!("Connected to {}", stream.peer_addr()?);
     let mut buffer = String::new();
     loop {
         std::io::stdin().read_line(&mut buffer)?;
