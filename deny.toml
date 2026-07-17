@@ -12,9 +12,10 @@ unknown-registry = "deny"
 unknown-git = "deny"
 
 [licenses]
-unlicensed = "deny"
-allow-osi-fsf-free = "either"
-copyleft = "deny"
+allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+# unlicensed = "deny"
+# allow-osi-fsf-free = "either"
+# copyleft = "deny"
 confidence-threshold = 0.93
 
 # [[licenses.clarify]]
