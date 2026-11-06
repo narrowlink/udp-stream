@@ -81,13 +81,26 @@ impl UdpListener {
                     Ok((len, peer_addr)) = socket.recv_buf_from(&mut buf) => {
                         match streams.get_mut(&peer_addr) {
                             Some(child_tx) => {
-                                if let Err(err) = child_tx.send(buf.copy_to_bytes(len)).await {
-                                    log::error!("child_tx.send {:?}", err);
-                                    streams.remove(&peer_addr);
-                                    continue;
+                                match child_tx.try_send(buf.copy_to_bytes(len)) {
+                                    Ok(()) => {}
+                                    Err(mpsc::error::TrySendError::Full(_)) => {
+                                        log::debug!("dropping datagram from {peer_addr}: peer queue full");
+                                    }
+                                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                                        streams.remove(&peer_addr);
+                                    }
                                 }
                             }
                             None => {
+                                let permit = match tx.try_reserve() {
+                                    Ok(permit) => permit,
+                                    Err(mpsc::error::TrySendError::Full(_)) => {
+                                        buf.advance(len);
+                                        log::debug!("dropping datagram from {peer_addr}: accept queue full");
+                                        continue;
+                                    }
+                                    Err(mpsc::error::TrySendError::Closed(_)) => break,
+                                };
                                 let (child_tx, child_rx) = mpsc::channel(CHANNEL_LEN);
                                 if let Err(err) = child_tx.send(buf.copy_to_bytes(len)).await {
                                     log::error!("child_tx.send {:?}", err);
@@ -102,11 +115,8 @@ impl UdpListener {
                                     drop: Some(drop_tx.clone()),
                                     remaining: None,
                                 };
-                                if let Err(err) = tx.send((udp_stream, peer_addr)).await {
-                                    log::error!("tx.send {:?}", err);
-                                    continue;
-                                }
-                                streams.insert(peer_addr, child_tx.clone());
+                                permit.send((udp_stream, peer_addr));
+                                streams.insert(peer_addr, child_tx);
                             }
                         }
                     }
@@ -294,5 +304,69 @@ impl AsyncWrite for UdpStream {
     }
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::{io::AsyncReadExt, time::timeout};
+
+    async fn send(socket: &UdpSocket, addr: SocketAddr, data: &[u8]) {
+        socket.send_to(data, addr).await.unwrap();
+    }
+
+    async fn expect_byte(stream: &mut UdpStream, expected: u8) {
+        let mut byte = [0];
+        timeout(Duration::from_secs(2), stream.read_exact(&mut byte))
+            .await
+            .expect("listener stalled")
+            .unwrap();
+        assert_eq!(byte[0], expected);
+    }
+
+    #[tokio::test]
+    async fn full_peer_queue_does_not_block_other_peers() {
+        let listener = UdpListener::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let slow = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let active = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        send(&slow, addr, b"s").await;
+        let (_slow_stream, _) = listener.accept().await.unwrap();
+        send(&active, addr, b"a").await;
+        let (mut active_stream, _) = listener.accept().await.unwrap();
+        expect_byte(&mut active_stream, b'a').await;
+
+        for _ in 0..CHANNEL_LEN + 20 {
+            send(&slow, addr, b"s").await;
+            tokio::task::yield_now().await;
+        }
+        send(&active, addr, b"b").await;
+        expect_byte(&mut active_stream, b'b').await;
+    }
+
+    #[tokio::test]
+    async fn full_accept_queue_does_not_block_existing_peers() {
+        let listener = UdpListener::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let active = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        send(&active, addr, b"a").await;
+        let (mut active_stream, _) = listener.accept().await.unwrap();
+        expect_byte(&mut active_stream, b'a').await;
+
+        let mut peers = Vec::new();
+        for _ in 0..CHANNEL_LEN + 20 {
+            let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            send(&peer, addr, b"n").await;
+            peers.push(peer);
+            tokio::task::yield_now().await;
+        }
+        send(&active, addr, b"b").await;
+        expect_byte(&mut active_stream, b'b').await;
     }
 }
