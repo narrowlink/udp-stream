@@ -1,6 +1,10 @@
 name: CI
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
 env:
   CARGO_TERM_COLOR: always
 
@@ -43,3 +47,24 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run tests with coverage
+        run: cargo llvm-cov nextest --all-features --all-targets --no-report
+      - name: Generate coverage reports
+        run: |
+          cargo llvm-cov report --summary-only
+          cargo llvm-cov report --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: lcov.info
+          if-no-files-found: error
