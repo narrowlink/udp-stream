@@ -8,47 +8,29 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - name: Install latest stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-            toolchain: stable
-            profile: minimal
-            override: true
-            components: rustfmt, clippy
+          components: rustfmt, clippy
       - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all-features --all-targets --verbose --examples
+        run: cargo build --all-features --all-targets --verbose --examples
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features --all-targets --verbose
+        run: cargo test --all-features --all-targets --verbose
 
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
           components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-      - uses: actions-rs/cargo@v1
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
         if: always()
-        with:
-          command: clippy
-          args: --workspace --all-targets --all-features -- -D warnings
 
   audit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: EmbarkStudios/cargo-deny-action@v2
